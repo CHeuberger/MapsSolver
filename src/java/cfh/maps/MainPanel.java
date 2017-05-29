@@ -3,6 +3,7 @@ package cfh.maps;
 import static javax.swing.JOptionPane.*;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Image;
 import java.awt.Toolkit;
@@ -21,6 +22,7 @@ import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
+import javax.swing.JTextField;
 
 
 @SuppressWarnings("serial")
@@ -29,17 +31,18 @@ public class MainPanel extends JPanel {
     private Action pasteAction;
 
     private ImagePanel imagePanel;
+    private JTextField status;
 
-    private Clipboard clipboard;
-    
 
     MainPanel() {
         initActions();
-        initClipboard();
 
         JMenuBar menubar = createMenuBar();
         
         imagePanel = new ImagePanel();
+        
+        status = new JTextField();
+        status.setEditable(false);
         
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         splitPane.setTopComponent(imagePanel);
@@ -48,10 +51,14 @@ public class MainPanel extends JPanel {
         setLayout(new BorderLayout());
         add(menubar, BorderLayout.PAGE_START);
         add(splitPane, BorderLayout.CENTER);
+        add(status, BorderLayout.PAGE_END);
+        
+        setStatus("");
     }
 
     private void doPaste(ActionEvent ev) {
         try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             if (clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor)) {
                 Image image;
                 try {
@@ -61,35 +68,14 @@ public class MainPanel extends JPanel {
                     return;
                 }
                 imagePanel.setImage(image);
+                setStatus("Loaded %d x %d", image.getWidth(null), image.getHeight(null));
             } else {
-                showMessageDialog(this, "no image to paste in clipboard");
+                showMessageDialog(this, "no image to paste");
             }
         } catch (IllegalStateException ex) {
             report(ex);
             return;
         }
-    }
-    
-    private void doFlavorChanged() {
-        boolean hasImage;
-        try {
-            hasImage = clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor);
-        } catch (IllegalStateException ex) {
-            ex.printStackTrace();
-            hasImage = false;
-        }
-        pasteAction.setEnabled(hasImage);
-    }
- 
-    private void initClipboard() {
-        clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        clipboard.addFlavorListener(new FlavorListener() {
-            @Override
-            public void flavorsChanged(FlavorEvent e) {
-                doFlavorChanged();
-            }
-        });
-        doFlavorChanged();
     }
     
     private void initActions() {
@@ -117,8 +103,15 @@ public class MainPanel extends JPanel {
         return bar;
     }
     
+    private void setStatus(String format, Object... args) {
+        status.setText(String.format(format, args));
+        status.setBackground(null);
+    }
+    
     private void report(Throwable ex) {
         ex.printStackTrace();
+        setStatus("%s: %s", ex.getClass().getSimpleName(), ex.getMessage());
+        status.setBackground(Color.RED);
         showMessageDialog(this, ex.getMessage(), ex.getClass().getSimpleName(), ERROR_MESSAGE);
     }
 }
