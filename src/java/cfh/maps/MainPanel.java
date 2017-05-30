@@ -16,11 +16,16 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
+import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.prefs.Preferences;
 
+import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
+import javax.swing.JFileChooser;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JPanel;
@@ -28,19 +33,25 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 
 @SuppressWarnings("serial")
 public class MainPanel extends JPanel {
     
-    enum State {
+    private static final int BORDER_DIST = 30;
+    
+    private static final String PREF_DIR = "directory";
+    
+    private final Preferences prefs = Preferences.userNodeForPackage(getClass());
+    
+    private enum State {
         EMPTY, NEW, BORDER
     }
     
-    private static final int BORDER_DIST = 30;
-    
     private State state;
     
+    private Action loadAction;
     private Action pasteAction;
     private Action borderAction;
 
@@ -49,7 +60,6 @@ public class MainPanel extends JPanel {
     private JTextField messageField;
     
     private BufferedImage originalImage = null;
-    private ColorModel colorModel = null;
 
 
     MainPanel() {
@@ -85,6 +95,31 @@ public class MainPanel extends JPanel {
         setState(State.EMPTY);
         setMessage("");
     }
+    
+    private void doLoad(ActionEvent ev ) {
+        try {
+            File dir = new File(prefs.get(PREF_DIR, ""));
+            JFileChooser chooser = new JFileChooser();
+            chooser.setAcceptAllFileFilterUsed(true);
+            chooser.setCurrentDirectory(dir);
+            chooser.setFileFilter(new FileNameExtensionFilter("Images", ImageIO.getReaderFileSuffixes()));
+            chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION)
+                return;
+            
+            File file = chooser.getSelectedFile();
+            dir = chooser.getCurrentDirectory();
+            prefs.put(PREF_DIR, dir.getAbsolutePath());
+            Image img = ImageIO.read(file);
+            if (img != null) {
+                setOriginalImage(img, file.getName());
+            } else {
+                showMessageDialog(this, "unable to read from " + file);
+            }
+        } catch (Exception ex) {
+            report(ex);
+        }
+    }
 
     private void doPaste(ActionEvent ev) {
         try {
@@ -97,82 +132,106 @@ public class MainPanel extends JPanel {
                     report(ex);
                     return;
                 }
-                originalImage = toBufferedImage(img);
-                colorModel = originalImage.getColorModel();
-                int w = originalImage.getWidth();
-                int h = originalImage.getHeight();
-                imagePanel.setImage(originalImage);
-                imagePanel.setOriginalSize(w, h);
-                setState(State.NEW);
-                setMessage("Loaded %d x %d", w, h);
+                setOriginalImage(img, null);
             } else {
                 showMessageDialog(this, "no image to paste");
             }
-        } catch (IllegalStateException ex) {
+        } catch (Exception ex) {
             report(ex);
-            return;
         }
     }
     
     private void doBorder(ActionEvent ev) {
-        new SwingWorker<Void, Void>() {
+        if (originalImage == null)
+            return;
+
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        imagePanel.setOverlay(overlay);
+
+        SwingWorker<Point, Point> worker = new SwingWorker<Point, Point>() {
             @Override
-            protected Void doInBackground() throws Exception {
-                if (originalImage == null)
-                    return null;
-                BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
-                imagePanel.setOverlay(overlay);
-                
-                // diagonal
-                int ref = metric(0, 0);
-                int x = 0;
-                int y = 0;
-                boolean found = false;
-                while (!found && ++x < originalImage.getWidth() && ++y < originalImage.getHeight()) {
-                    int m = metric(x, y);
-                    found = (abs(m-ref) > BORDER_DIST);
-                    overlay.setRGB(x, y, Color.RED.getRGB());
-                    imagePanel.repaint();
-                }
-                if (!found)
-                    return null;
-                
-                found = false;
-                while (!found && --x < originalImage.getWidth()) {
-                    int m = metric(x, y);
-                    found = (abs(m-ref) <= BORDER_DIST);
-                    overlay.setRGB(x, y, Color.RED.getRGB());
-                    imagePanel.repaint();
-                }
-                x += 1;
- 
-                if (!found) {
-                    while (!found && --y < originalImage.getHeight()) {
+            protected Point doInBackground() throws Exception {
+//                try {
+                    // diagonal
+                    int ref = metric(0, 0);
+                    int x = 0;
+                    int y = 0;
+                    boolean found = false;
+                    while (!found && ++x < originalImage.getWidth() && ++y < originalImage.getHeight()) {
+                        int m = metric(x, y);
+                        found = (abs(m-ref) > BORDER_DIST);
+                        publish(new Point(x, y));
+                    }
+                    if (!found)
+                        return null;
+                    
+                    // left
+                    found = false;
+                    while (!found && --x >= 0) {
                         int m = metric(x, y);
                         found = (abs(m-ref) <= BORDER_DIST);
-                        overlay.setRGB(x, y, Color.RED.getRGB());
-                        imagePanel.repaint();
+                        publish(new Point(x, y));
+                    }
+                    x += 1;
+     
+                    // up
+                    found = false;
+                    while (!found && --y >= 0) {
+                        int m = metric(x, y);
+                        found = (abs(m-ref) <= BORDER_DIST);
+                        publish(new Point(x, y));
                     }
                     y += 1;
-                }
-                
-                if (found) {
-                    Graphics2D og = overlay.createGraphics();
-                    og.setColor(Color.GREEN);
-                    og.drawLine(x-2, y-2, x+2, y+2);
-                    og.drawLine(x-2, y+2, x+2, y-2);
-                    imagePanel.repaint();
-                    og.dispose();
-                }
-                
-                // TODO Auto-generated method stub
-                return null;
+                    
+                    // TODO Auto-generated method stub
+                    return new Point(x, y);
+//                } catch (Exception ex) {
+//                    report(ex);
+//                    throw ex;
+//                }
             }
-        }.execute();
-        // TODO
+            @Override
+            protected void process(java.util.List<Point> chunks) {
+                for (Point point : chunks) {
+                    overlay.setRGB(point.x, point.y, Color.RED.getRGB());
+                }
+                imagePanel.repaint();
+            }
+            @Override
+            protected void done() {
+                try {
+                    Point point = get();
+                    if (point != null) {
+                        Graphics2D og = overlay.createGraphics();
+                        og.setColor(Color.GREEN);
+                        og.drawLine(point.x-2, point.y-2, point.x+2, point.y+2);
+                        og.drawLine(point.x-2, point.y+2, point.x+2, point.y-2);
+                        og.dispose();
+                        setMessage("Border at %d,%d", point.x, point.y);
+                    } else {
+                        setMessage("Border not found");
+                    }
+                    imagePanel.repaint();
+                } catch (Exception ex) {
+                    report(ex);
+                }
+            }
+        };
+        worker.execute();
+    }
+    
+    private void setOriginalImage(Image img, String filename) {
+        originalImage = toBufferedImage(img);
+        int w = originalImage.getWidth();
+        int h = originalImage.getHeight();
+        imagePanel.setImage(originalImage);
+        imagePanel.setOriginalSize(w, h);
+        setState(State.NEW);
+        setMessage("Loaded %s (%dx%d)", filename == null ? "" : filename, w, h);
     }
     
     private void initActions() {
+        loadAction = makeAction("Load", "Load a map from file", this::doLoad);
         pasteAction = makeAction("Paste", "Paste a new map", this::doPaste);
         borderAction = makeAction("Border", "Find external border", this::doBorder);
     }
@@ -190,6 +249,7 @@ public class MainPanel extends JPanel {
     
     private JMenuBar createMenuBar() {
         JMenu fileMenu = new JMenu("File");
+        fileMenu.add(loadAction);
         fileMenu.add(pasteAction);
         
         JMenu analyseMenu = new JMenu("Analyse");
@@ -216,10 +276,13 @@ public class MainPanel extends JPanel {
     
     private int metric(int x, int y) {
         int rgb = originalImage.getRGB(x, y);
+        ColorModel colorModel = ColorModel.getRGBdefault();
         int r = colorModel.getRed(rgb);
         int g = colorModel.getGreen(rgb);
         int b = colorModel.getBlue(rgb);
-        return 2*r*r + 4*g*g + 3*b*b;
+        int value = 2*r*r + 4*g*g + 3*b*b;
+        System.out.printf("%d,%d: %d\n", x, y, value);
+        return value;
     }
     
     private void setState(State state) {
@@ -230,13 +293,13 @@ public class MainPanel extends JPanel {
     
     private void setMessage(String format, Object... args) {
         messageField.setText(String.format(format, args));
-        messageField.setBackground(null);
+        messageField.setForeground(null);
     }
     
     private void report(Throwable ex) {
         ex.printStackTrace();
         setMessage("%s: %s", ex.getClass().getSimpleName(), ex.getMessage());
-        messageField.setBackground(Color.RED);
+        messageField.setForeground(Color.RED);
         showMessageDialog(this, ex.getMessage(), ex.getClass().getSimpleName(), ERROR_MESSAGE);
     }
 }
