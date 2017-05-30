@@ -19,8 +19,8 @@ import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.prefs.Preferences;
 
 import javax.imageio.ImageIO;
@@ -54,7 +54,11 @@ public class MainPanel extends JPanel {
     
     private Action loadAction;
     private Action pasteAction;
+    
     private Action borderAction;
+    private Action grayAction;
+    private Action hueAction;
+    private Action resetAction;
 
     private ImagePanel imagePanel;
     private JTextField stateField;
@@ -149,7 +153,7 @@ public class MainPanel extends JPanel {
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
 
-        SwingWorker<Rectangle, Point> worker = new SwingWorker<Rectangle, Point>() {
+        new SwingWorker<Rectangle, Point>() {
             @Override
             protected Rectangle doInBackground() throws Exception {
                 boolean found;
@@ -231,7 +235,6 @@ public class MainPanel extends JPanel {
                     throw new IllegalArgumentException("unable to close border: " + new Point(x,y) + " " + corner2);
                 
                 return new Rectangle(corner1.x, corner1.y, corner2.x-corner1.x, corner2.y-corner1.y);
-                // TODO Auto-generated method stub
             }
             @Override
             protected void process(java.util.List<Point> chunks) {
@@ -246,12 +249,118 @@ public class MainPanel extends JPanel {
                     Rectangle rectangle = get();
                     imagePanel.setOverlay(null);
                     imagePanel.setExternalBorder(rectangle);
+                    setState(State.BORDER);
                 } catch (Exception ex) {
                     report(ex);
                 }
             }
-        };
-        worker.execute();
+        }
+        .execute();
+    }
+    
+    private void doGray(ActionEvent ev) {
+        if (originalImage == null)
+            return;
+
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_BYTE_GRAY);
+        imagePanel.setOverlay(overlay);
+        
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ColorModel cm = overlay.getColorModel();
+                for (int y = 0; y < originalImage.getHeight(); y++) {
+                    for (int x = 0; x < originalImage.getWidth(); x++) {
+                        overlay.setRGB(x, y, cm.getRGB(normMetric(x, y)));
+                    }
+                    publish();
+                }
+                return null;
+            }
+            @Override
+            protected void process(java.util.List<Void> chunks) {
+                imagePanel.repaint();
+            }
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception ex) {
+                    report(ex);
+                }
+                imagePanel.repaint();
+            };
+        }
+        .execute();
+    }
+    
+    private void doColor(Function<int[], int[]> filter) {
+        if (originalImage == null)
+            return;
+        
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_RGB);
+        imagePanel.setOverlay(overlay);
+        
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ColorModel cm = ColorModel.getRGBdefault();
+                int[] rgb = new int[cm.getNumComponents()];
+                for (int y = 0; y < originalImage.getHeight(); y++) {
+                    for (int x = 0; x < originalImage.getWidth(); x++) {
+                        cm.getComponents(originalImage.getRGB(x, y), rgb, 0);
+                        int[] comps = filter.apply(rgb);
+                        int pixel = cm.getDataElement(comps, 0);
+                        overlay.setRGB(x, y, pixel);
+                    }
+                    publish();
+                }
+                return null;
+            }
+            @Override
+            protected void process(java.util.List<Void> chunks) {
+                imagePanel.repaint();
+            }
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception ex) {
+                    report(ex);
+                }
+                imagePanel.repaint();
+            };
+        }
+        .execute();
+    }
+    
+    private int[] filterHue(int[] rgb) {
+        float a = rgb[3];
+        float r = rgb[0] / a;
+        float g = rgb[1] / a;
+        float b = rgb[2] / a;
+        float max = max(r, max(g, b));
+        float min = min(r, min(g, b));
+        float diff = 6 * (max - min);
+        float hue;
+        if (diff == 0) {
+            hue = 0;
+        } else if (max == r) {
+            hue = (g - b) / diff;
+        } else if (max == g) {
+            hue = 1F/3 + (b - r) / diff;
+        } else {
+            hue = 2F/3 + (r - g) / diff;
+        }
+        if (hue < 0) hue += 1;
+        rgb[0] = rgb[1] = rgb[2] = (int) (255 * hue);
+        rgb[3] = 255;
+        return rgb;
+    }
+    
+    private void doReset(ActionEvent ev) {
+        imagePanel.setOverlay(null);
+        imagePanel.setExternalBorder(null);
     }
     
     private void setOriginalImage(Image img, String filename) {
@@ -267,7 +376,11 @@ public class MainPanel extends JPanel {
     private void initActions() {
         loadAction = makeAction("Load", "Load a map from file", this::doLoad);
         pasteAction = makeAction("Paste", "Paste a new map", this::doPaste);
+        
         borderAction = makeAction("Border", "Find external border", this::doBorder);
+        grayAction = makeAction("Gray", "Show metric as gray overlay", this::doGray);
+        hueAction = makeAction("HUE", "Show metric as hue overlay", ev -> doColor(this::filterHue));
+        resetAction = makeAction("Reset", "Clear all overlays and Border", this::doReset);
     }
     
     private Action makeAction(String name, String tooltip, Consumer<ActionEvent> listener) {
@@ -288,6 +401,11 @@ public class MainPanel extends JPanel {
         
         JMenu analyseMenu = new JMenu("Analyse");
         analyseMenu.add(borderAction);
+        analyseMenu.addSeparator();
+        analyseMenu.add(grayAction);
+        analyseMenu.add(hueAction);
+        analyseMenu.addSeparator();
+        analyseMenu.add(resetAction);
         
         JMenuBar bar = new JMenuBar();
         bar.add(fileMenu);
@@ -317,6 +435,10 @@ public class MainPanel extends JPanel {
         int value = 2*r*r + 4*g*g + 3*b*b;
 //        System.out.printf("%d,%d: %d\n", x, y, value);
         return value;
+    }
+    
+    private int normMetric(int x, int y) {
+        return (int) sqrt(metric(x, y) / 9.0);
     }
     
     private void setState(State state) {
