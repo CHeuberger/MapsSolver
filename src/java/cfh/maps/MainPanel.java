@@ -9,6 +9,7 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -148,47 +149,89 @@ public class MainPanel extends JPanel {
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
 
-        SwingWorker<Point, Point> worker = new SwingWorker<Point, Point>() {
+        SwingWorker<Rectangle, Point> worker = new SwingWorker<Rectangle, Point>() {
             @Override
-            protected Point doInBackground() throws Exception {
-//                try {
-                    // diagonal
-                    int ref = metric(0, 0);
-                    int x = 0;
-                    int y = 0;
-                    boolean found = false;
-                    while (!found && ++x < originalImage.getWidth() && ++y < originalImage.getHeight()) {
-                        int m = metric(x, y);
-                        found = (abs(m-ref) > BORDER_DIST);
-                        publish(new Point(x, y));
-                    }
-                    if (!found)
-                        return null;
-                    
-                    // left
-                    found = false;
-                    while (!found && --x >= 0) {
-                        int m = metric(x, y);
-                        found = (abs(m-ref) <= BORDER_DIST);
-                        publish(new Point(x, y));
-                    }
-                    x += 1;
-     
-                    // up
-                    found = false;
-                    while (!found && --y >= 0) {
-                        int m = metric(x, y);
-                        found = (abs(m-ref) <= BORDER_DIST);
-                        publish(new Point(x, y));
-                    }
-                    y += 1;
-                    
-                    // TODO Auto-generated method stub
-                    return new Point(x, y);
-//                } catch (Exception ex) {
-//                    report(ex);
-//                    throw ex;
-//                }
+            protected Rectangle doInBackground() throws Exception {
+                boolean found;
+                // diagonal
+                int outsideMetric = metric(0, 0);
+                int x = 0;
+                int y = 0;
+                found = false;
+                while (!found && ++x < originalImage.getWidth() && ++y < originalImage.getHeight()) {
+                    int m = metric(x, y);
+                    found = (abs(m-outsideMetric) > BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                if (!found)
+                    return null;
+
+                // left
+                found = false;
+                while (!found && --x >= 0) {
+                    int m = metric(x, y);
+                    found = (abs(m-outsideMetric) <= BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                x += 1;
+
+                // up
+                found = false;
+                while (!found && --y >= 0) {
+                    int m = metric(x, y);
+                    found = (abs(m-outsideMetric) <= BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                y += 1;
+
+                Point corner1 = new Point(x, y);
+                int borderMetric = metric(x, y);
+                
+                //top
+                found = false;
+                while (!found && ++x < originalImage.getWidth()) {
+                    int m = metric(x, y);
+                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                x -= 1;
+                
+                // right
+                found = false;
+                while (!found && ++y < originalImage.getHeight()) {
+                    int m = metric(x, y);
+                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                y -= 1;
+                
+                Point corner2 = new Point(x, y);
+                
+                x = corner1.x;
+                y = corner1.y;
+                // left
+                found = false;
+                while (!found && ++y < originalImage.getHeight()) {
+                    int m = metric(x, y);
+                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                y -= 1;
+                
+                // bottom
+                found = false;
+                while (!found && ++x < originalImage.getWidth()) {
+                    int m = metric(x, y);
+                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    publish(new Point(x, y));
+                }
+                x -= 1;
+                
+                if (x != corner2.x || y != corner2.y)
+                    throw new IllegalArgumentException("unable to close border: " + new Point(x,y) + " " + corner2);
+                
+                return new Rectangle(corner1.x, corner1.y, corner2.x-corner1.x, corner2.y-corner1.y);
+                // TODO Auto-generated method stub
             }
             @Override
             protected void process(java.util.List<Point> chunks) {
@@ -200,18 +243,9 @@ public class MainPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    Point point = get();
-                    if (point != null) {
-                        Graphics2D og = overlay.createGraphics();
-                        og.setColor(Color.GREEN);
-                        og.drawLine(point.x-2, point.y-2, point.x+2, point.y+2);
-                        og.drawLine(point.x-2, point.y+2, point.x+2, point.y-2);
-                        og.dispose();
-                        setMessage("Border at %d,%d", point.x, point.y);
-                    } else {
-                        setMessage("Border not found");
-                    }
-                    imagePanel.repaint();
+                    Rectangle rectangle = get();
+                    imagePanel.setOverlay(null);
+                    imagePanel.setExternalBorder(rectangle);
                 } catch (Exception ex) {
                     report(ex);
                 }
@@ -281,7 +315,7 @@ public class MainPanel extends JPanel {
         int g = colorModel.getGreen(rgb);
         int b = colorModel.getBlue(rgb);
         int value = 2*r*r + 4*g*g + 3*b*b;
-        System.out.printf("%d,%d: %d\n", x, y, value);
+//        System.out.printf("%d,%d: %d\n", x, y, value);
         return value;
     }
     

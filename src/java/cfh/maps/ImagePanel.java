@@ -3,9 +3,12 @@ package cfh.maps;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 
 import javax.swing.JPanel;
+import javax.swing.Timer;
 
 
 @SuppressWarnings("serial")
@@ -14,13 +17,21 @@ public class ImagePanel extends JPanel {
     private BufferedImage image = null;
     private BufferedImage overlay = null;
     
+    private Rectangle border = null;
+    private boolean drawBorder;
+    
+    private final Timer animator;
+    
     
     ImagePanel() {
+        animator = new Timer(200, ev -> repaint());
+        animator.setInitialDelay(0);
     }
     
     public void setImage(BufferedImage image) {
         this.image = image;
         overlay = null;
+        border = null;
         revalidate();
         repaint();
     }
@@ -36,27 +47,55 @@ public class ImagePanel extends JPanel {
     public BufferedImage getOverlay() {
         return overlay;
     }
-
+    
+    public void setExternalBorder(Rectangle border) {
+        this.border = border;
+        drawBorder = true;
+        animator.start();
+    }
+    
+    public Rectangle getExternalBorder() {
+        return border;
+    }
+    
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         
         if (image != null) {
-            Color tmp = g.getColor();
+            Graphics2D gg = (Graphics2D) g.create();
             try {
-                g.setColor(Color.BLACK);
+                gg.setColor(Color.BLACK);
                 Dimension size = getPreferredSize();
                 int w = image.getWidth();
                 int h = image.getHeight();
                 int x = (size.width - w) / 2;
                 int y = (size.height - h) / 2;
-                g.fillRect(x-2, y-2, w+4, h+4);
-                g.drawImage(image, x, y, this);
+                gg.translate(x, y);
+                gg.fillRect(-2, -2, w+4, h+4);
+                gg.drawImage(image, 0, 0, this);
+                
                 if (overlay != null) {
-                    g.drawImage(overlay, x, y, this);
+                    gg.drawImage(overlay, 0, 0, this);
+                }
+                
+                if (border != null) {
+                    if (drawBorder) {
+                        gg.setXORMode(Color.WHITE);
+                        gg.draw(border);
+                    }
+                    drawBorder ^= true;
+                } else {
+                    if (animator.isRunning()) {
+                        animator.stop();
+                    }
                 }
             } finally {
-                g.setColor(tmp);
+                gg.dispose();
+            }
+        } else {
+            if (animator.isRunning()) {
+                animator.stop();
             }
         }
     }
