@@ -1,5 +1,6 @@
 package cfh.maps;
 
+import static java.awt.image.BufferedImage.*;
 import static java.lang.Math.*;
 import static javax.swing.JOptionPane.*;
 
@@ -54,11 +55,14 @@ public class MainPanel extends JPanel {
     
     private Action loadAction;
     private Action pasteAction;
+    private Action resetAction;
     
     private Action borderAction;
+    
     private Action grayAction;
     private Action hueAction;
-    private Action resetAction;
+    private Action lumaAction;
+    private Action saturationAction;
 
     private ImagePanel imagePanel;
     private JTextField stateField;
@@ -150,7 +154,7 @@ public class MainPanel extends JPanel {
         if (originalImage == null)
             return;
 
-        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
 
         new SwingWorker<Rectangle, Point>() {
@@ -158,13 +162,13 @@ public class MainPanel extends JPanel {
             protected Rectangle doInBackground() throws Exception {
                 boolean found;
                 // diagonal
-                int outsideMetric = metric(0, 0);
+                int outside = originalImage.getRGB(0, 0);
                 int x = 0;
                 int y = 0;
                 found = false;
                 while (!found && ++x < originalImage.getWidth() && ++y < originalImage.getHeight()) {
-                    int m = metric(x, y);
-                    found = (abs(m-outsideMetric) > BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), outside);
+                    found = (m > BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 if (!found)
@@ -173,8 +177,8 @@ public class MainPanel extends JPanel {
                 // left
                 found = false;
                 while (!found && --x >= 0) {
-                    int m = metric(x, y);
-                    found = (abs(m-outsideMetric) <= BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), outside);
+                    found = (m <= BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 x += 1;
@@ -182,20 +186,20 @@ public class MainPanel extends JPanel {
                 // up
                 found = false;
                 while (!found && --y >= 0) {
-                    int m = metric(x, y);
-                    found = (abs(m-outsideMetric) <= BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), outside);
+                    found = (m <= BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 y += 1;
 
                 Point corner1 = new Point(x, y);
-                int borderMetric = metric(x, y);
+                int border = originalImage.getRGB(x, y);
                 
                 //top
                 found = false;
                 while (!found && ++x < originalImage.getWidth()) {
-                    int m = metric(x, y);
-                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), border);
+                    found = (m > BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 x -= 1;
@@ -203,8 +207,8 @@ public class MainPanel extends JPanel {
                 // right
                 found = false;
                 while (!found && ++y < originalImage.getHeight()) {
-                    int m = metric(x, y);
-                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), border);
+                    found = (m > BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 y -= 1;
@@ -216,8 +220,8 @@ public class MainPanel extends JPanel {
                 // left
                 found = false;
                 while (!found && ++y < originalImage.getHeight()) {
-                    int m = metric(x, y);
-                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), border);
+                    found = (m > BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 y -= 1;
@@ -225,8 +229,8 @@ public class MainPanel extends JPanel {
                 // bottom
                 found = false;
                 while (!found && ++x < originalImage.getWidth()) {
-                    int m = metric(x, y);
-                    found = (abs(m-borderMetric) > BORDER_DIST);
+                    int m = diff(originalImage.getRGB(x, y), border);
+                    found = (m > BORDER_DIST);
                     publish(new Point(x, y));
                 }
                 x -= 1;
@@ -258,47 +262,11 @@ public class MainPanel extends JPanel {
         .execute();
     }
     
-    private void doGray(ActionEvent ev) {
-        if (originalImage == null)
-            return;
-
-        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_BYTE_GRAY);
-        imagePanel.setOverlay(overlay);
-        
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                ColorModel cm = overlay.getColorModel();
-                for (int y = 0; y < originalImage.getHeight(); y++) {
-                    for (int x = 0; x < originalImage.getWidth(); x++) {
-                        overlay.setRGB(x, y, cm.getRGB(normMetric(x, y)));
-                    }
-                    publish();
-                }
-                return null;
-            }
-            @Override
-            protected void process(java.util.List<Void> chunks) {
-                imagePanel.repaint();
-            }
-            @Override
-            protected void done() {
-                try {
-                    get();
-                } catch (Exception ex) {
-                    report(ex);
-                }
-                imagePanel.repaint();
-            };
-        }
-        .execute();
-    }
-    
-    private void doColor(Function<int[], int[]> filter) {
+    private void transform(Function<int[], int[]> filter, int type) {
         if (originalImage == null)
             return;
         
-        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_RGB);
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), type);
         imagePanel.setOverlay(overlay);
         
         new SwingWorker<Void, Void>() {
@@ -334,26 +302,75 @@ public class MainPanel extends JPanel {
         .execute();
     }
     
+    private int[] filterGray(int[] rgb) {
+        int r = rgb[0];
+        int g = rgb[1];
+        int b = rgb[2];
+        int v = (int) sqrt((2*r*r + 4*g*g + 3*b*b) / 9.0);
+        rgb[0] = rgb[1] = rgb[2] = v;
+        rgb[3] = 255;
+        return rgb;
+    }
+    
     private int[] filterHue(int[] rgb) {
-        float a = rgb[3];
-        float r = rgb[0] / a;
-        float g = rgb[1] / a;
-        float b = rgb[2] / a;
-        float max = max(r, max(g, b));
-        float min = min(r, min(g, b));
-        float diff = 6 * (max - min);
         float hue;
-        if (diff == 0) {
+        if (rgb[3] == 0) {
             hue = 0;
-        } else if (max == r) {
-            hue = (g - b) / diff;
-        } else if (max == g) {
-            hue = 1F/3 + (b - r) / diff;
         } else {
-            hue = 2F/3 + (r - g) / diff;
+            float a = rgb[3];
+            float r = rgb[0] / a;
+            float g = rgb[1] / a;
+            float b = rgb[2] / a;
+            float max = max(r, max(g, b));
+            float min = min(r, min(g, b));
+            float diff = 6 * (max - min);
+            if (diff == 0) {
+                hue = 0;
+            } else if (max == r) {
+                hue = (g - b) / diff;
+            } else if (max == g) {
+                hue = 1F/3 + (b - r) / diff;
+            } else {
+                hue = 2F/3 + (r - g) / diff;
+            }
+            if (hue < 0) hue += 1;
         }
-        if (hue < 0) hue += 1;
         rgb[0] = rgb[1] = rgb[2] = (int) (255 * hue);
+        rgb[3] = 255;
+        return rgb;
+    }
+    
+    private int[] filterLuma(int[] rgb) {
+        int luma = 0;
+        if (rgb[3] == 0) {
+            luma = 0;
+        } else {
+            float a = rgb[3];
+            float r = rgb[0] / a;
+            float g = rgb[1] / a;
+            float b = rgb[2] / a;
+            luma = (int) (255 * (0.299*r + 0.587*g + 0.114*b));
+        }
+        
+        rgb[0] = rgb[1] = rgb[2] = luma;
+        rgb[3] = 255;
+        return rgb;
+    }
+    
+    private int[] filterSaturation(int[] rgb) {
+        float sat;
+        float a = rgb[3];
+        if (a == 0) {
+            sat = 0;
+        } else {
+            float r = rgb[0] / a;
+            float g = rgb[1] / a;
+            float b = rgb[2] / a;
+            float max = max(r, max(g, b));
+            float min = min(r, min(g, b));
+            sat = max == 0 ? 0 : (max-min) / max;
+        }
+        rgb[0] = rgb[1] = rgb[2] = (int) (255 * sat);
         rgb[3] = 255;
         return rgb;
     }
@@ -378,8 +395,10 @@ public class MainPanel extends JPanel {
         pasteAction = makeAction("Paste", "Paste a new map", this::doPaste);
         
         borderAction = makeAction("Border", "Find external border", this::doBorder);
-        grayAction = makeAction("Gray", "Show metric as gray overlay", this::doGray);
-        hueAction = makeAction("HUE", "Show metric as hue overlay", ev -> doColor(this::filterHue));
+        grayAction = makeAction("Gray", "Show metric as gray overlay", ev -> transform(this::filterGray, TYPE_INT_RGB));
+        hueAction = makeAction("HUE", "Show hue overlay", ev -> transform(this::filterHue, TYPE_INT_RGB));
+        lumaAction = makeAction("Luma", "Show luma overlay", ev -> transform(this::filterLuma, TYPE_INT_RGB));
+        saturationAction = makeAction("Saturation", "Show saturation overlay", ev -> transform(this::filterSaturation, TYPE_INT_RGB));
         resetAction = makeAction("Reset", "Clear all overlays and Border", this::doReset);
     }
     
@@ -398,18 +417,22 @@ public class MainPanel extends JPanel {
         JMenu fileMenu = new JMenu("File");
         fileMenu.add(loadAction);
         fileMenu.add(pasteAction);
+        fileMenu.addSeparator();
+        fileMenu.add(resetAction);
         
         JMenu analyseMenu = new JMenu("Analyse");
         analyseMenu.add(borderAction);
-        analyseMenu.addSeparator();
-        analyseMenu.add(grayAction);
-        analyseMenu.add(hueAction);
-        analyseMenu.addSeparator();
-        analyseMenu.add(resetAction);
+        
+        JMenu filterMenu = new JMenu("Filter");
+        filterMenu.add(grayAction);
+        filterMenu.add(hueAction);
+        filterMenu.add(lumaAction);
+        filterMenu.add(saturationAction);
         
         JMenuBar bar = new JMenuBar();
         bar.add(fileMenu);
         bar.add(analyseMenu);
+        bar.add(filterMenu);
         
         return bar;
     }
@@ -418,7 +441,7 @@ public class MainPanel extends JPanel {
         if (img instanceof BufferedImage)
             return (BufferedImage) img;
         
-        BufferedImage result = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_RGB);
+        BufferedImage result = new BufferedImage(img.getWidth(null), img.getHeight(null), TYPE_INT_RGB);
         Graphics2D gg = result.createGraphics();
         gg.drawImage(img, 0, 0, null);
         gg.dispose();
@@ -426,19 +449,13 @@ public class MainPanel extends JPanel {
         return result;
     }
     
-    private int metric(int x, int y) {
-        int rgb = originalImage.getRGB(x, y);
-        ColorModel colorModel = ColorModel.getRGBdefault();
-        int r = colorModel.getRed(rgb);
-        int g = colorModel.getGreen(rgb);
-        int b = colorModel.getBlue(rgb);
+    private int diff(int rgb, int ref) {
+        ColorModel cm = ColorModel.getRGBdefault();
+        int r = cm.getRed(rgb) - cm.getRed(ref);
+        int g = cm.getGreen(rgb) - cm.getGreen(ref);
+        int b = cm.getBlue(rgb) - cm.getBlue(ref);
         int value = 2*r*r + 4*g*g + 3*b*b;
-//        System.out.printf("%d,%d: %d\n", x, y, value);
         return value;
-    }
-    
-    private int normMetric(int x, int y) {
-        return (int) sqrt(metric(x, y) / 9.0);
     }
     
     private void setState(State state) {
@@ -447,6 +464,8 @@ public class MainPanel extends JPanel {
         borderAction.setEnabled(state != State.EMPTY);
         grayAction.setEnabled(state != State.EMPTY);
         hueAction.setEnabled(state != State.EMPTY);
+        lumaAction.setEnabled(state != State.EMPTY);
+        saturationAction.setEnabled(state != State.EMPTY);
     }
     
     private void setMessage(String format, Object... args) {
