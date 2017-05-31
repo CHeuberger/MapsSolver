@@ -445,6 +445,8 @@ public class MainPanel extends JPanel {
         this.state = state;
         stateField.setText(state.toString());
         borderAction.setEnabled(state != State.EMPTY);
+        grayAction.setEnabled(state != State.EMPTY);
+        hueAction.setEnabled(state != State.EMPTY);
     }
     
     private void setMessage(String format, Object... args) {
