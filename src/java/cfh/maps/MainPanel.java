@@ -32,6 +32,7 @@ import javax.swing.Action;
 import javax.swing.JFileChooser;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -44,7 +45,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 public class MainPanel extends JPanel {
     
     private static final int BORDER_DIFF = 30;
-    private static final int REGION_DIFF = 10;
+    private static final int REGION_DIFF = 30;
     
     private static final String PREF_DIR = "directory";
     
@@ -280,9 +281,11 @@ public class MainPanel extends JPanel {
         new SwingWorker<int[][], int[][]>() {
             @Override
             protected int[][] doInBackground() throws Exception {
+                int outside = originalImage.getRGB(0, 0);
                 int border = originalImage.getRGB(x0, y0);
                 int[][] result = new int[externalBorder.height][externalBorder.width];
                 List<Integer> colors = new ArrayList<>();
+                colors.add(outside);
                 colors.add(border);
                 for (int y = 0; y < externalBorder.height; y++) {
                     for (int x = 0; x < externalBorder.width; x++) {
@@ -311,13 +314,16 @@ public class MainPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    updateOverlay(get());
+                    int colors = updateOverlay(get()) - 1;
                     setState(State.BORDER);
+                    if (colors != 4) {
+                        showMessageDialog(MainPanel.this, "Found " + colors + " colors, expected 4", "Wrong number of colors found", WARNING_MESSAGE);
+                    }
                 } catch (Exception ex) {
                     report(ex);
                 }
             }
-            private void updateOverlay(int[][] result) {
+            private int updateOverlay(int[][] result) {
                 int max = 0;
                 for (int y = 0; y < result.length; y++) {
                     for (int x = 0; x < result[y].length; x++) {
@@ -330,13 +336,16 @@ public class MainPanel extends JPanel {
                         int hue = result[y][x];
                         int rgb;
                         if (hue == 0)
-                            rgb = 0;
+                            rgb = Color.WHITE.getRGB();
+                        else if (hue == 1)
+                            rgb = Color.BLACK.getRGB();
                         else
-                            rgb = Color.HSBtoRGB((float) (hue-1) / max, 1, 1);
+                            rgb = Color.HSBtoRGB((float) (hue-2) / (max-1), 1, 1);
                         overlay.setRGB(x0+x, y0+y, rgb);
                     }
                 }
                 repaint();
+                return max;
             }
         }
         .execute();
