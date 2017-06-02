@@ -4,6 +4,8 @@ import static java.awt.image.BufferedImage.*;
 import static java.lang.Math.*;
 import static javax.swing.JOptionPane.*;
 
+import static cfh.maps.Intersection.NONE;
+
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -21,7 +23,11 @@ import java.awt.image.ColorModel;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.prefs.Preferences;
@@ -32,7 +38,6 @@ import javax.swing.Action;
 import javax.swing.JFileChooser;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -47,15 +52,13 @@ public class MainPanel extends JPanel {
     private static final int BORDER_DIFF = 30;
     private static final int REGION_DIFF = 30;
     
+    private static final int NORM_EMPTY = 0;
+    private static final int NORM_BORDER = 1;
+    
     private static final String PREF_DIR = "directory";
     
     private final Preferences prefs = Preferences.userNodeForPackage(getClass());
     
-    private enum State {
-        EMPTY, NEW, BORDER
-    }
-    
-    private State state;
     
     private Action loadAction;
     private Action pasteAction;
@@ -63,6 +66,7 @@ public class MainPanel extends JPanel {
     
     private Action borderAction;
     private Action normAction;
+    private Action walkAction;
     
     private Action grayAction;
     private Action hueAction;
@@ -75,6 +79,8 @@ public class MainPanel extends JPanel {
     
     private BufferedImage originalImage = null;
     private Rectangle externalBorder = null;
+    private int[][] normalized = null;
+    private Collection<Intersection> intersections = null;
 
 
     MainPanel() {
@@ -107,7 +113,7 @@ public class MainPanel extends JPanel {
         add(splitPane, BorderLayout.CENTER);
         add(statusPanel, BorderLayout.PAGE_END);
         
-        setState(State.EMPTY);
+        update();
         setMessage("");
     }
     
@@ -158,7 +164,7 @@ public class MainPanel extends JPanel {
     
     private void doBorder(ActionEvent ev) {
         if (originalImage == null)
-            return;
+            assert false : "no image loaded";
 
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
@@ -259,7 +265,7 @@ public class MainPanel extends JPanel {
                     externalBorder = get();
                     imagePanel.setOverlay(null);
                     imagePanel.setExternalBorder(externalBorder);
-                    setState(State.BORDER);
+                    update();
                 } catch (Exception ex) {
                     report(ex);
                 }
@@ -269,8 +275,8 @@ public class MainPanel extends JPanel {
     }
     
     private void doNorm(ActionEvent ev) {
-        if (originalImage == null || externalBorder == null)
-            return;
+        if (externalBorder == null)
+            assert false : "must first find border";
         
         int x0 = externalBorder.x;
         int y0 = externalBorder.y;
@@ -283,12 +289,12 @@ public class MainPanel extends JPanel {
             protected int[][] doInBackground() throws Exception {
                 int outside = originalImage.getRGB(0, 0);
                 int border = originalImage.getRGB(x0, y0);
-                int[][] result = new int[externalBorder.height][externalBorder.width];
+                int[][] result = new int[externalBorder.height+1][externalBorder.width+1];
                 List<Integer> colors = new ArrayList<>();
-                colors.add(outside);
-                colors.add(border);
-                for (int y = 0; y < externalBorder.height; y++) {
-                    for (int x = 0; x < externalBorder.width; x++) {
+                colors.add(outside);   // NORM_EMPTY = 0
+                colors.add(border);    // NORM_BORDER = 1
+                for (int y = 0; y < result.length; y++) {
+                    for (int x = 0; x < result[y].length; x++) {
                         int value = -1;
                         int rgb = originalImage.getRGB(x0+x, y0+y);
                         for (int i = 0; i < colors.size(); i++) {
@@ -314,8 +320,10 @@ public class MainPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    int colors = updateOverlay(get()) - 1;
-                    setState(State.BORDER);
+                    normalized = get();
+                    int colors = updateOverlay(normalized) - 1;
+                    imagePanel.setExternalBorder(null);
+                    update();
                     if (colors != 4) {
                         showMessageDialog(MainPanel.this, "Found " + colors + " colors, expected 4", "Wrong number of colors found", WARNING_MESSAGE);
                     }
@@ -335,18 +343,126 @@ public class MainPanel extends JPanel {
                     for (int x = 0; x < result[y].length; x++) {
                         int hue = result[y][x];
                         int rgb;
-                        if (hue == 0)
+                        if (hue == NORM_EMPTY)
                             rgb = Color.WHITE.getRGB();
-                        else if (hue == 1)
+                        else if (hue == NORM_BORDER)
                             rgb = Color.BLACK.getRGB();
                         else
-                            rgb = Color.HSBtoRGB((float) (hue-2) / (max-1), 1, 1);
+                            rgb = Color.HSBtoRGB((float) (hue-NORM_BORDER) / (max-NORM_BORDER+1), 1, 1);
                         overlay.setRGB(x0+x, y0+y, rgb);
                     }
                 }
                 repaint();
                 return max;
             }
+        }
+        .execute();
+    }
+    
+    private void doWalk(ActionEvent ev) {
+        if (normalized == null)
+            assert false : "must first be normalized";
+
+        int x0 = externalBorder.x;
+        int y0 = externalBorder.y;
+        
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
+        imagePanel.setOverlay(overlay);
+        
+        new SwingWorker<Collection<Intersection>, Point>() {
+            private final LinkedList<Intersection> open = new LinkedList<>();
+            private final LinkedList<Intersection> done = new LinkedList<>();
+            
+            private boolean valid(int x, int y) {
+                return y >= 0 && x >= 0 && y < normalized.length && x < normalized[y].length;
+            }
+            private boolean border(int x, int y) {
+                return valid(x, y) && normalized[y][x] == NORM_BORDER;
+            }
+            private boolean segment(int x, int y, Dir dir) {
+                return border(x+dir.x, y+dir.y) && border(x+2*dir.x, y+2*dir.y);
+            }
+            
+            @Override
+            protected Collection<Intersection> doInBackground() throws Exception {
+                open.add(new Intersection(0, 0));
+                searchOpen:
+                while (!open.isEmpty()) {
+                    Intersection inter = open.getLast();
+                    for (Dir dir : Dir.values()) {
+                        Dir rev = dir.rev();
+                        if (inter.unknown(dir) && segment(inter.x, inter.y, dir)) {
+                            int x = inter.x + dir.x;
+                            int y = inter.y + dir.y;
+                            
+                            searchBranch:
+                            while (border(x+dir.x, y+dir.y)) {
+                                publish(new Point(x, y));
+                                for (Dir test : Dir.values()) {
+                                    if (test != dir && test != rev) {
+                                        if (segment(x, y, test)) {
+                                            break searchBranch;
+                                        }
+                                    }
+                                }
+                                x += dir.x;
+                                y += dir.y;
+                            }
+                            publish(new Point(x, y));
+                            
+                            Intersection found = new Intersection(x, y);
+                            int index = done.indexOf(found);
+                            if (index != -1) {
+                                found = done.get(index);
+                            } else {
+                                index = open.indexOf(found);
+                                if (index != -1) {
+                                    found = open.get(index);
+                                } else {
+                                    open.add(found);
+                                }
+                            }
+                            inter.neighbour(dir, found);
+                            found.neighbour(rev, inter);
+                            continue searchOpen;
+                        } else {
+                            inter.neighbour(dir, NONE);
+                        }
+                    }
+                    
+                    open.removeLast();
+                    done.add(inter);
+                }
+                return Collections.unmodifiableCollection(done);
+            }
+            @Override
+            protected void process(java.util.List<Point> chunks) {
+                for (Point point : chunks) {
+                    overlay.setRGB(x0+point.x, y0+point.y, Color.RED.getRGB());
+                }
+                imagePanel.repaint();
+            };
+            @Override
+            protected void done() {
+                try {
+                    intersections = get();
+                } catch (Exception ex) {
+                    report(ex);
+                    return;
+                }
+                Graphics2D gg = overlay.createGraphics();
+                try {
+                    gg.setColor(Color.BLUE);
+                    for (Intersection inter : intersections) {
+                        int x = x0 + inter.x;
+                        int y = y0 + inter.y;
+                        gg.drawLine(x-2, y-2, x+2, y+2);
+                        gg.drawLine(x-2, y+2, x+2, y-2);
+                    }
+                } finally {
+                    gg.dispose();
+                }
+            };
         }
         .execute();
     }
@@ -471,11 +587,16 @@ public class MainPanel extends JPanel {
     
     private void setOriginalImage(Image img, String filename) {
         originalImage = toBufferedImage(img);
+        externalBorder = null;
+        normalized = null;
+        intersections = null;
+        
         int w = originalImage.getWidth();
         int h = originalImage.getHeight();
         imagePanel.setImage(originalImage);
         imagePanel.setOriginalSize(w, h);
-        setState(State.NEW);
+        
+        update();
         setMessage("Loaded %s (%dx%d)", filename == null ? "" : filename, w, h);
     }
     
@@ -486,6 +607,7 @@ public class MainPanel extends JPanel {
         
         borderAction = makeAction("Border", "Find external border", this::doBorder);
         normAction = makeAction("Norm", "Normalize colors", this::doNorm);
+        walkAction = makeAction("Walk", "Find intersections by 'walking' the borders", this::doWalk);
 
         grayAction = makeAction("Gray", "Show metric as gray overlay", ev -> transform(this::filterGray, TYPE_INT_RGB));
         hueAction = makeAction("HUE", "Show hue overlay", ev -> transform(this::filterHue, TYPE_INT_RGB));
@@ -514,6 +636,7 @@ public class MainPanel extends JPanel {
         JMenu analyseMenu = new JMenu("Analyse");
         analyseMenu.add(borderAction);
         analyseMenu.add(normAction);
+        analyseMenu.add(walkAction);
         
         JMenu filterMenu = new JMenu("Filter");
         filterMenu.add(grayAction);
@@ -550,15 +673,15 @@ public class MainPanel extends JPanel {
         return value;
     }
     
-    private void setState(State state) {
-        this.state = state;
-        stateField.setText(state.toString());
-        borderAction.setEnabled(state != State.EMPTY);
-        normAction.setEnabled(state.ordinal() >= State.BORDER.ordinal());
-        grayAction.setEnabled(state != State.EMPTY);
-        hueAction.setEnabled(state != State.EMPTY);
-        lumaAction.setEnabled(state != State.EMPTY);
-        saturationAction.setEnabled(state != State.EMPTY);
+    private void update() {
+        borderAction.setEnabled(originalImage != null);
+        normAction.setEnabled(externalBorder != null);
+        walkAction.setEnabled(normalized != null);
+        
+        grayAction.setEnabled(originalImage != null);
+        hueAction.setEnabled(originalImage != null);
+        lumaAction.setEnabled(originalImage != null);
+        saturationAction.setEnabled(originalImage != null);
     }
     
     private void setMessage(String format, Object... args) {
@@ -568,6 +691,9 @@ public class MainPanel extends JPanel {
     
     private void report(Throwable ex) {
         ex.printStackTrace();
+        if (ex instanceof ExecutionException && ex.getCause() != null) {
+            ex = ex.getCause();
+        }
         setMessage("%s: %s", ex.getClass().getSimpleName(), ex.getMessage());
         messageField.setForeground(Color.RED);
         showMessageDialog(this, ex.getMessage(), ex.getClass().getSimpleName(), ERROR_MESSAGE);

@@ -44,18 +44,10 @@ public class ImagePanel extends JPanel {
         this.overlay = overlay;
     }
     
-    public BufferedImage getOverlay() {
-        return overlay;
-    }
-    
     public void setExternalBorder(Rectangle border) {
         this.border = border;
         drawBorder = true;
         animator.start();
-    }
-    
-    public Rectangle getExternalBorder() {
-        return border;
     }
     
     @Override
