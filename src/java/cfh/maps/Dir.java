@@ -1,5 +1,8 @@
 package cfh.maps;
 
+import java.util.Arrays;
+import java.util.List;
+
 public enum Dir {
 
     E (+1,  0), 
@@ -12,6 +15,9 @@ public enum Dir {
     NE(+1, -1);
     
     public static final int count = 8;
+    
+    public static final List<Dir> MAIN = Arrays.asList(E, S, W, N);
+    
     
     public final int x;
     public final int y;

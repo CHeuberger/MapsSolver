@@ -29,7 +29,7 @@ public class StepDialog {
     private JButton stepButton;
     private JButton runButton;
     
-    private boolean running;
+    private boolean stepping = false;
     private Lock lock;
     private Condition step;
     
@@ -63,20 +63,21 @@ public class StepDialog {
     }
     
     void show() {
+        stepping = true;
         dialog.setVisible(true);
-        running = false;
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
     }
     
     void dispose() {
+        stepping = false;
         dialog.dispose();
     }
     
     void doStep(ActionEvent ev) {
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
-        if (!running) {
+        if (stepping) {
             lock.lock();
             try {
                 step.signal();
@@ -89,8 +90,8 @@ public class StepDialog {
     void doRun(ActionEvent ev) {
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
-        if (!running) {
-            running = true;
+        if (stepping) {
+            stepping = false;
             lock.lock();
             try {
                 step.signal();
@@ -102,7 +103,7 @@ public class StepDialog {
 
     void waitStep(String format, Object... args) {
         message.setText(String.format(format, args));
-        if (!running) {
+        if (stepping) {
             stepButton.setEnabled(true);
             runButton.setEnabled(true);
             lock.lock();

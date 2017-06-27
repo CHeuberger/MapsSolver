@@ -38,6 +38,7 @@ public class ImagePanel extends JPanel {
         this.image = image;
         overlay = null;
         border = null;
+        mark = null;
         revalidate();
         repaint();
     }

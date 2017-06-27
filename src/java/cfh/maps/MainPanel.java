@@ -66,6 +66,7 @@ public class MainPanel extends JPanel {
     
     private Action borderAction;
     private Action normAction;
+    private Action regionsAction;
     private Action walkAction;
     
     private Action grayAction;
@@ -80,6 +81,7 @@ public class MainPanel extends JPanel {
     private BufferedImage originalImage = null;
     private Rectangle externalBorder = null;
     private int[][] normalized = null;
+    private int[][] regions = null;
     private Collection<Intersection> intersections = null;
 
 
@@ -168,10 +170,17 @@ public class MainPanel extends JPanel {
 
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
-        StepDialog stepDialog = new StepDialog(this, "Border");
-        stepDialog.show();
+        StepDialog stepDialog = new StepDialog(this, "Finding Border");
+        if ((ev.getModifiers() & ActionEvent.CTRL_MASK) != 0) {
+            stepDialog.show();
+        }
 
         new SwingWorker<Rectangle, Point>() {
+            private void mark(int x, int y, String text) {
+                imagePanel.setMark(new Point(x, y));
+                stepDialog.waitStep("(%d,%d) %s", x, y, text);
+            }
+
             @Override
             protected Rectangle doInBackground() throws Exception {
                 boolean found;
@@ -273,9 +282,9 @@ public class MainPanel extends JPanel {
             }
             @Override
             protected void done() {
+                stepDialog.dispose();
                 try {
                     externalBorder = get();
-                    stepDialog.dispose();
                     imagePanel.setOverlay(null);
                     imagePanel.setExternalBorder(externalBorder);
                     imagePanel.setMark(null);
@@ -284,10 +293,6 @@ public class MainPanel extends JPanel {
                 } catch (Exception ex) {
                     report(ex);
                 }
-            }
-            private void mark(int x, int y, String text) {
-                imagePanel.setMark(new Point(x, y));
-                stepDialog.waitStep("(%d,%d) %s", x, y, text);
             }
         }
         .execute();
@@ -378,6 +383,129 @@ public class MainPanel extends JPanel {
         .execute();
     }
     
+    private void doRegions(ActionEvent ev) {
+        if (normalized == null)
+            assert false : "must first normalize";
+        
+        int x0 = externalBorder.x;
+        int y0 = externalBorder.y;
+        
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
+        imagePanel.setOverlay(overlay);
+        StepDialog stepDialog = new StepDialog(this, "Finding Border");
+        if ((ev.getModifiers() & ActionEvent.CTRL_MASK) != 0) {
+            stepDialog.show();
+        }
+        
+        new SwingWorker<int[][], int[][]>() {
+            private boolean valid(int x, int y) {
+                return y >= 0 && x >= 0 && y < normalized.length && x < normalized[y].length;
+            }
+            private void mark(int x, int y, String text) {
+                imagePanel.setMark(new Point(x0+x, y0+y));
+                stepDialog.waitStep("(%d,%d) %s", x, y, text);
+            }
+
+            @Override
+            protected int[][] doInBackground() throws Exception {
+                int[][] result = new int[externalBorder.height+1][externalBorder.width+1];
+                int nextRegion = 1;
+                List<Point> open = new ArrayList<>();
+                scanEmpty:
+                for (int y = 1; y < result.length-1; y++) {
+                    for (int x = 1; x < result[y].length-1; x++) {
+                        if (normalized[y][x] != NORM_BORDER) {
+                            open.add(new Point(x, y));
+                            break scanEmpty;
+                        }
+                    }
+                }
+                
+                while (!open.isEmpty()) {
+                    Point start = open.remove(0);
+                    if (result[start.y][start.x] != 0)
+                        continue;
+
+                    int region = nextRegion++;
+                    mark(start.x, start.y, "new region " + region);
+                    assert normalized[start.y][start.x] != NORM_BORDER : start;
+
+                    List<Point> current = new ArrayList<>();
+                    current.add(start);
+                    while (!current.isEmpty()) {
+                        Point point = current.remove(0);
+                        int x = point.x;
+                        int y = point.y;
+                        assert normalized[y][x] != NORM_BORDER : point;
+                        assert result[y][x] == 0 : point + "=" + result[y][x];
+                        result[y][x] = region;
+                        for (Dir dir : Dir.MAIN) {
+                            int x1 = x + dir.x;
+                            int y1 = y + dir.y;
+                            if (normalized[y1][x1] == NORM_BORDER) {
+                                int x2 = x1 + dir.x;
+                                int y2 = y1 + dir.y;
+                                if (valid(x2, y2) && normalized[y2][x2] != NORM_BORDER && result[y2][x2] == 0) {
+                                    open.add(new Point(x2, y2));
+                                }
+                            } else {
+                                if (result[y1][x1] == 0) {
+                                    Point p = new Point(x1, y1);
+                                    if (!current.contains(p)) {
+                                        current.add(p);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    publish(result);
+                    mark(start.x, start.y, "filled region " + region);
+                }
+                System.out.println(nextRegion);
+                
+                return result;
+            }
+            @Override
+            protected void process(java.util.List<int[][]> chunks) {
+                updateOverlay(chunks.get(chunks.size()-1));
+            }
+            @Override
+            protected void done() {
+                stepDialog.dispose();
+                try {
+                    regions = get();
+                    imagePanel.setMark(null);
+                    int count = updateOverlay(regions);
+                    update();
+                    setMessage("%d regions indentified", count);
+                } catch (Exception ex) {
+                    report(ex);
+                }
+            }
+            private int updateOverlay(int[][] result) {
+                int max = 0;
+                for (int y = 0; y < result.length; y++) {
+                    for (int x = 0; x < result[y].length; x++) {
+                        if (result[y][x] > max)
+                            max = result[y][x];
+                    }
+                }
+                for (int y = 0; y < result.length; y++) {
+                    for (int x = 0; x < result[y].length; x++) {
+                        int hue = result[y][x];
+                        if (hue > 0) {
+                            int rgb = Color.HSBtoRGB((float) hue / max, 1, 1);
+                            overlay.setRGB(x0+x, y0+y, rgb);
+                        }
+                    }
+                }
+                repaint();
+                return max;
+            }
+        }
+        .execute();
+    }
+    
     private void doWalk(ActionEvent ev) {
         if (normalized == null)
             assert false : "must first be normalized";
@@ -387,7 +515,11 @@ public class MainPanel extends JPanel {
         
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
-        
+        StepDialog stepDialog = new StepDialog(this, "Walking Edges");
+        if ((ev.getModifiers() & ActionEvent.CTRL_MASK) != 0) {
+            stepDialog.show();
+        }
+ 
         new SwingWorker<Collection<Intersection>, Point>() {
             private final LinkedList<Intersection> open = new LinkedList<>();
             private final LinkedList<Intersection> done = new LinkedList<>();
@@ -400,6 +532,10 @@ public class MainPanel extends JPanel {
             }
             private boolean segment(int x, int y, Dir dir) {
                 return border(x+dir.x, y+dir.y) && border(x+2*dir.x, y+2*dir.y);
+            }
+            private void mark(int x, int y, String text) {
+                imagePanel.setMark(new Point(x0+x, y0+y));
+                stepDialog.waitStep("(%d,%d) %s", x, y, text);
             }
             
             @Override
@@ -433,12 +569,15 @@ public class MainPanel extends JPanel {
                             int index = done.indexOf(found);
                             if (index != -1) {
                                 found = done.get(index);
+                                mark(x, y, "branch: done");
                             } else {
                                 index = open.indexOf(found);
                                 if (index != -1) {
                                     found = open.get(index);
+                                    mark(x, y, "branch: open");
                                 } else {
                                     open.add(found);
+                                    mark(x, y, "branch: new");
                                 }
                             }
                             inter.neighbour(dir, found);
@@ -463,6 +602,7 @@ public class MainPanel extends JPanel {
             };
             @Override
             protected void done() {
+                stepDialog.dispose();
                 try {
                     intersections = get();
                 } catch (Exception ex) {
@@ -624,9 +764,10 @@ public class MainPanel extends JPanel {
         pasteAction = makeAction("Paste", "Paste a new map", this::doPaste);
         resetAction = makeAction("Reset", "Clear all overlays and Border", this::doReset);
         
-        borderAction = makeAction("Border", "Find external border", this::doBorder);
+        borderAction = makeAction("Border", "Find external border; CTRL for stepping", this::doBorder);
         normAction = makeAction("Norm", "Normalize colors", this::doNorm);
-        walkAction = makeAction("Walk", "Find intersections by 'walking' the borders", this::doWalk);
+        regionsAction = makeAction("Regions", "Identify all regions; CTRL for stepping", this::doRegions);
+        walkAction = makeAction("Walk", "Find intersections by 'walking' the borders; CTRL for stepping", this::doWalk);
 
         grayAction = makeAction("Gray", "Show metric as gray overlay", ev -> transform(this::filterGray, TYPE_INT_RGB));
         hueAction = makeAction("HUE", "Show hue overlay", ev -> transform(this::filterHue, TYPE_INT_RGB));
@@ -655,6 +796,8 @@ public class MainPanel extends JPanel {
         JMenu analyseMenu = new JMenu("Analyse");
         analyseMenu.add(borderAction);
         analyseMenu.add(normAction);
+        analyseMenu.add(regionsAction);
+        analyseMenu.addSeparator();
         analyseMenu.add(walkAction);
         
         JMenu filterMenu = new JMenu("Filter");
@@ -695,6 +838,7 @@ public class MainPanel extends JPanel {
     private void update() {
         borderAction.setEnabled(originalImage != null);
         normAction.setEnabled(externalBorder != null);
+        regionsAction.setEnabled(normalized != null);
         walkAction.setEnabled(normalized != null);
         
         grayAction.setEnabled(originalImage != null);
