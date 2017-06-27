@@ -4,6 +4,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 
@@ -14,11 +15,16 @@ import javax.swing.Timer;
 @SuppressWarnings("serial")
 public class ImagePanel extends JPanel {
 
+    private static final int MARK = 6;
+    
     private BufferedImage image = null;
     private BufferedImage overlay = null;
     
     private Rectangle border = null;
     private boolean drawBorder;
+    
+    private Point mark = null;
+    private boolean drawMark;
     
     private final Timer animator;
     
@@ -40,6 +46,13 @@ public class ImagePanel extends JPanel {
         super.setPreferredSize(new Dimension(width+6, height+6));
     }
     
+    public void reset() {
+        overlay = null;
+        border = null;
+        mark = null;
+        repaint();
+    }
+    
     public void setOverlay(BufferedImage overlay) {
         this.overlay = overlay;
     }
@@ -47,7 +60,17 @@ public class ImagePanel extends JPanel {
     public void setExternalBorder(Rectangle border) {
         this.border = border;
         drawBorder = true;
-        animator.start();
+        if (!animator.isRunning()) {
+            animator.start();
+        }
+    }
+    
+    public void setMark(Point mark) {
+        this.mark = mark;
+        drawMark = true;
+        if (!animator.isRunning()) {
+            animator.start();
+        }
     }
     
     @Override
@@ -77,7 +100,18 @@ public class ImagePanel extends JPanel {
                         gg.draw(border);
                     }
                     drawBorder ^= true;
-                } else {
+                }
+                if (mark != null) {
+                    if (drawMark) {
+                        gg.setColor(Color.BLACK);
+                        gg.setXORMode(Color.WHITE);
+                        gg.drawLine(mark.x-MARK, mark.y-MARK, mark.x+MARK, mark.y+MARK);
+                        gg.drawLine(mark.x-MARK, mark.y+MARK, mark.x+MARK, mark.y-MARK);
+                    }
+                    drawMark ^= true;
+                }
+                
+                if (border == null && mark == null) {
                     if (animator.isRunning()) {
                         animator.stop();
                     }

@@ -168,6 +168,8 @@ public class MainPanel extends JPanel {
 
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
+        StepDialog stepDialog = new StepDialog(this, "Border");
+        stepDialog.show();
 
         new SwingWorker<Rectangle, Point>() {
             @Override
@@ -183,8 +185,12 @@ public class MainPanel extends JPanel {
                     found = (m > BORDER_DIFF);
                     publish(new Point(x, y));
                 }
-                if (!found)
+                if (!found) {
+                    mark(x, y, "first corner: not found");
                     return null;
+                } else {
+                    mark(x, y, "first corner: found start");
+                }
 
                 // left
                 found = false;
@@ -193,6 +199,7 @@ public class MainPanel extends JPanel {
                     found = (m <= BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "first corner: going left");
                 x += 1;
 
                 // up
@@ -202,6 +209,7 @@ public class MainPanel extends JPanel {
                     found = (m <= BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "first corner: going up");
                 y += 1;
 
                 Point corner1 = new Point(x, y);
@@ -214,6 +222,7 @@ public class MainPanel extends JPanel {
                     found = (m > BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "second corner: following top");
                 x -= 1;
                 
                 // right
@@ -223,6 +232,7 @@ public class MainPanel extends JPanel {
                     found = (m > BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "second corner: following right");
                 y -= 1;
                 
                 Point corner2 = new Point(x, y);
@@ -236,6 +246,7 @@ public class MainPanel extends JPanel {
                     found = (m > BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "checking: following left");
                 y -= 1;
                 
                 // bottom
@@ -245,6 +256,7 @@ public class MainPanel extends JPanel {
                     found = (m > BORDER_DIFF);
                     publish(new Point(x, y));
                 }
+                mark(x, y, "checking: following bottom");
                 x -= 1;
                 
                 if (x != corner2.x || y != corner2.y)
@@ -263,12 +275,19 @@ public class MainPanel extends JPanel {
             protected void done() {
                 try {
                     externalBorder = get();
+                    stepDialog.dispose();
                     imagePanel.setOverlay(null);
                     imagePanel.setExternalBorder(externalBorder);
+                    imagePanel.setMark(null);
+                    setMessage("border: %s", externalBorder);
                     update();
                 } catch (Exception ex) {
                     report(ex);
                 }
+            }
+            private void mark(int x, int y, String text) {
+                imagePanel.setMark(new Point(x, y));
+                stepDialog.waitStep("(%d,%d) %s", x, y, text);
             }
         }
         .execute();
@@ -581,8 +600,8 @@ public class MainPanel extends JPanel {
     }
     
     private void doReset(ActionEvent ev) {
-        imagePanel.setOverlay(null);
-        imagePanel.setExternalBorder(null);
+        imagePanel.reset();
+        messageField.setText(null);
     }
     
     private void setOriginalImage(Image img, String filename) {
