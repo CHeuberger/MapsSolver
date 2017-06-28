@@ -20,8 +20,8 @@ public class ImagePanel extends JPanel {
     private BufferedImage image = null;
     private BufferedImage overlay = null;
     
-    private Rectangle border = null;
-    private boolean drawBorder;
+    private Rectangle boundary = null;
+    private boolean drawBoundary;
     
     private Point mark = null;
     private boolean drawMark;
@@ -37,7 +37,7 @@ public class ImagePanel extends JPanel {
     public void setImage(BufferedImage image) {
         this.image = image;
         overlay = null;
-        border = null;
+        boundary = null;
         mark = null;
         revalidate();
         repaint();
@@ -49,7 +49,7 @@ public class ImagePanel extends JPanel {
     
     public void reset() {
         overlay = null;
-        border = null;
+        boundary = null;
         mark = null;
         repaint();
     }
@@ -58,9 +58,9 @@ public class ImagePanel extends JPanel {
         this.overlay = overlay;
     }
     
-    public void setExternalBorder(Rectangle border) {
-        this.border = border;
-        drawBorder = true;
+    public void setBoundary(Rectangle boundary) {
+        this.boundary = boundary;
+        drawBoundary = true;
         if (!animator.isRunning()) {
             animator.start();
         }
@@ -95,12 +95,12 @@ public class ImagePanel extends JPanel {
                     gg.drawImage(overlay, 0, 0, this);
                 }
                 
-                if (border != null) {
-                    if (drawBorder) {
+                if (boundary != null) {
+                    if (drawBoundary) {
                         gg.setXORMode(Color.WHITE);
-                        gg.draw(border);
+                        gg.draw(boundary);
                     }
-                    drawBorder ^= true;
+                    drawBoundary ^= true;
                 }
                 if (mark != null) {
                     if (drawMark) {
@@ -112,7 +112,7 @@ public class ImagePanel extends JPanel {
                     drawMark ^= true;
                 }
                 
-                if (border == null && mark == null) {
+                if (boundary == null && mark == null) {
                     if (animator.isRunning()) {
                         animator.stop();
                     }
