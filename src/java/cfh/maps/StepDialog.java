@@ -34,7 +34,7 @@ public class StepDialog {
     private Condition step;
     
     
-    StepDialog(Component parent, String title) {
+    public StepDialog(Component parent, String title) {
         label = new JLabel(title);
         
         message = new JTextField(20);
@@ -62,19 +62,19 @@ public class StepDialog {
         step = lock.newCondition();
     }
     
-    void show() {
+    public void show() {
         stepping = true;
         dialog.setVisible(true);
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
     }
     
-    void dispose() {
+    public void dispose() {
         stepping = false;
         dialog.dispose();
     }
     
-    void doStep(ActionEvent ev) {
+    public void doStep(ActionEvent ev) {
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
         if (stepping) {
@@ -87,7 +87,7 @@ public class StepDialog {
         }
     }
     
-    void doRun(ActionEvent ev) {
+    public void doRun(ActionEvent ev) {
         stepButton.setEnabled(false);
         runButton.setEnabled(false);
         if (stepping) {
@@ -101,7 +101,7 @@ public class StepDialog {
         }
     }
 
-    void waitStep(String format, Object... args) {
+    public void waitStep(String format, Object... args) {
         message.setText(String.format(format, args));
         if (stepping) {
             stepButton.setEnabled(true);

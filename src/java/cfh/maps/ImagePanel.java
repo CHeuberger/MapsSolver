@@ -29,7 +29,7 @@ public class ImagePanel extends JPanel {
     private final Timer animator;
     
     
-    ImagePanel() {
+    public ImagePanel() {
         animator = new Timer(200, ev -> repaint());
         animator.setInitialDelay(0);
     }

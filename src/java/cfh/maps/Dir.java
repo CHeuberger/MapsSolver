@@ -1,6 +1,7 @@
 package cfh.maps;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public enum Dir {
@@ -16,7 +17,7 @@ public enum Dir {
     
     public static final int count = 8;
     
-    public static final List<Dir> MAIN = Arrays.asList(E, S, W, N);
+    public static final List<Dir> MAIN = Collections.unmodifiableList(Arrays.asList(E, S, W, N));
     
     
     public final int x;
