@@ -166,8 +166,7 @@ public class MainPanel extends JPanel {
     }
     
     private void doBoundary(ActionEvent ev) {
-        if (originalImage == null)
-            assert false : "no image loaded";
+        assert originalImage != null : "must first " + loadAction.getValue(Action.NAME);
 
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
         imagePanel.setOverlay(overlay);
@@ -300,8 +299,7 @@ public class MainPanel extends JPanel {
     }
     
     private void doNorm(ActionEvent ev) {
-        if (boundary == null)
-            assert false : "must first find boundary";
+        assert boundary != null : "must first do " + boundaryAction.getValue(Action.NAME);
         
         int x0 = boundary.x;
         int y0 = boundary.y;
@@ -385,8 +383,7 @@ public class MainPanel extends JPanel {
     }
     
     private void doFill(ActionEvent ev) {
-        if (normalized == null)
-            assert false : "must first normalize";
+        assert normalized != null : "must first do " + normAction.getValue(Action.NAME);
         
         int x0 = boundary.x;
         int y0 = boundary.y;
@@ -508,8 +505,7 @@ public class MainPanel extends JPanel {
     }
     
     private void doWalk(ActionEvent ev) {
-        if (normalized == null)
-            assert false : "must first be normalized";
+        assert normalized != null : "must first do " + normAction.getValue(Action.NAME);
 
         int x0 = boundary.x;
         int y0 = boundary.y;
@@ -628,8 +624,7 @@ public class MainPanel extends JPanel {
     }
     
     private void transform(Function<int[], int[]> filter, int type) {
-        if (originalImage == null)
-            return;
+        assert originalImage != null : "must first " + loadAction.getValue(Action.NAME);
         
         final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), type);
         imagePanel.setOverlay(overlay);
