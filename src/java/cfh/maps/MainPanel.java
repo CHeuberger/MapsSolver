@@ -8,6 +8,7 @@ import static javax.swing.JOptionPane.*;
 import static cfh.maps.Intersection.NONE;
 
 import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -719,10 +720,29 @@ public class MainPanel extends JPanel {
             @Override
             protected void done() {
                 stepDialog.dispose();
+                imagePanel.repaint();
                 try {
                     borders = get();
                     imagePanel.setMark(null);
-                    imagePanel.setOverlay(null);
+                    Graphics2D gg = overlay.createGraphics();
+                    try {
+                        gg.setComposite(AlphaComposite.Clear);
+                        gg.fillRect(0, 0, overlay.getWidth(), overlay.getHeight());
+                        gg.setComposite(AlphaComposite.SrcOver);
+                        gg.setColor(Color.RED);
+                        gg.setStroke(new BasicStroke(2));
+                        for (Border border : borders) {
+                            Point prev = null;
+                            for (Point point : border.points()) {
+                                if (prev != null) {
+                                    gg.drawLine(x0+prev.x, y0+prev.y, x0+point.x, y0+point.y);
+                                }
+                                prev = point;
+                            }
+                        }
+                    } finally {
+                        gg.dispose();
+                    }
                     update();
                     setMessage("Border: found %d borders from %d intersections", borders.size(), intersections.size());
                 } catch (Exception ex) {
