@@ -480,6 +480,7 @@ public class MainPanel extends JPanel {
                 stepDialog.dispose();
                 try {
                     filled = get();
+                    imagePanel.setBoundary(null);
                     imagePanel.setMark(null);
                     int count = updateOverlay(filled);
                     update();
@@ -723,6 +724,7 @@ public class MainPanel extends JPanel {
                 imagePanel.repaint();
                 try {
                     borders = get();
+                    imagePanel.setBoundary(null);
                     imagePanel.setMark(null);
                     Graphics2D gg = overlay.createGraphics();
                     try {
@@ -784,6 +786,8 @@ public class MainPanel extends JPanel {
             protected void done() {
                 try {
                     get();
+                    imagePanel.setBoundary(null);
+                    imagePanel.setMark(null);
                 } catch (Exception ex) {
                     report(ex);
                 }
