@@ -14,11 +14,25 @@ public class Node {
     
     private final Set<Node> neighbours = new HashSet<>();
     
+    public boolean fixed = false;
+    private int color;
+    
     
     public Node(int region, int x, int y) {
+        this(region, x, y, false, -1);
+    }
+    
+    public Node(int region, int x, int y, int color) {
+        this(region, x, y, true, color);
+        assert color >= 0 : x + "," + y;
+    }
+    
+    private Node(int region, int x, int y, boolean fixed, int color) {
         this.region = region;
         this.x = x;
         this.y = y;
+        this.fixed = fixed;
+        this.color = color;
     }
     
     public boolean hasNeighbour(Node node) {
@@ -31,6 +45,10 @@ public class Node {
     
     public synchronized Stream<Node> neighbours() {
         return neighbours.stream();
+    }
+    
+    public int color() {
+        return color;
     }
     
     @Override

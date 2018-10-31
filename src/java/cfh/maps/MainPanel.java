@@ -96,6 +96,7 @@ public class MainPanel extends JPanel {
     private BufferedImage originalImage = null;
     private Rectangle boundary = null;
     private int[][] normalized = null;
+    private Color[] normColors = null;
     private int[][] filled = null;
     private Collection<Node> graph = null;
     private Collection<Intersection> intersections = null;
@@ -323,14 +324,16 @@ public class MainPanel extends JPanel {
         imagePanel.setOverlay(overlay);
         
         new SwingWorker<int[][], int[][]>() {
+            private List<Integer> colors;
             @Override
             protected int[][] doInBackground() throws Exception {
                 int outside = originalImage.getRGB(0, 0);
                 int border = originalImage.getRGB(x0, y0);
                 int[][] result = new int[boundary.height+1][boundary.width+1];
-                List<Integer> colors = new ArrayList<>(Arrays.asList(-1, -1));
-                colors.set(NORM_EMPTY, outside);
-                colors.set(NORM_BORDER, border);
+                colors = new ArrayList<>(Arrays.asList(
+                        outside,  // [NORM_EMPTY]
+                        border    // [NORM_BORDER]
+                        ));
 
                 for (int y = 0; y < result.length; y++) {
                     for (int x = 0; x < result[y].length; x++) {
@@ -360,26 +363,24 @@ public class MainPanel extends JPanel {
             protected void done() {
                 try {
                     normalized = get();
+                    normColors = colors.subList(2, colors.size()).stream().map(Color::new).toArray(Color[]::new);
                     imagePanel.setBoundary(null);
                     imagePanel.setMark(null);
-                    int colors = updateOverlay(normalized) - 1;
+                    int count = updateOverlay(normalized) - 1;
                     update();
-                    setMessage("Norm: found %d colors", colors);
-                    if (colors != 4) {
-                        showMessageDialog(MainPanel.this, "Found " + colors + " colors, expected 4", "Wrong number of colors found", WARNING_MESSAGE);
+                    setMessage("Norm: found %d colors", count);
+                    if (count != 4) {
+                        showMessageDialog(MainPanel.this, "Found " + count + " colors, expected 4", "Wrong number of colors found", WARNING_MESSAGE);
                     }
                 } catch (Exception ex) {
                     report(ex);
                 }
             }
             private int updateOverlay(int[][] result) {
-                int max = 0;
-                for (int y = 0; y < result.length; y++) {
-                    for (int x = 0; x < result[y].length; x++) {
-                        if (result[y][x] > max)
-                            max = result[y][x];
-                    }
-                }
+                int max = Arrays.stream(result)
+                        .flatMapToInt(Arrays::stream)
+                        .max()
+                        .orElse(0);
                 for (int y = 0; y < result.length; y++) {
                     for (int x = 0; x < result[y].length; x++) {
                         int hue = result[y][x];
@@ -501,13 +502,10 @@ public class MainPanel extends JPanel {
                 }
             }
             private int updateOverlay(int[][] result) {
-                int max = 0;
-                for (int y = 0; y < result.length; y++) {
-                    for (int x = 0; x < result[y].length; x++) {
-                        if (result[y][x] > max)
-                            max = result[y][x];
-                    }
-                }
+                int max = Arrays.stream(result)
+                        .flatMapToInt(Arrays::stream)
+                        .max()
+                        .orElse(0);
                 for (int y = 0; y < result.length; y++) {
                     for (int x = 0; x < result[y].length; x++) {
                         int hue = result[y][x];
@@ -551,19 +549,23 @@ public class MainPanel extends JPanel {
                 int sumx = 0;
                 int sumy = 0;
                 int count = 0;
+                int color = 0;
                 for (int y = 1; y < filled.length-1; y++) {
                     for (int x = 1; x < filled[y].length-1; x++) {
                        if (filled[y][x] == region) {
                            sumx += x;
                            sumy += y;
                            count += 1;
+                           color = normalized[y][x];
                        }
                     }
                 }
                 int x = count == 0 ? 0 : sumx / count;
                 int y = count == 0 ? 0 : sumy / count;
 
-                return new Node(region, x, y);
+                return color == NORM_EMPTY ?
+                        new Node(region, x, y) :
+                        new Node(region, x, y, color-NORM_BORDER-1);
             }
             @Override
             protected Collection<Node> doInBackground() throws Exception {
@@ -597,7 +599,7 @@ public class MainPanel extends JPanel {
                                    if (top.hasNeighbour(bottom) && bottom.hasNeighbour(top))
                                        continue;
                                    
-                                   mark(x, y, "found horizontal: " + top + " " + bottom);
+                                   mark(x, y, "found vertical: " + top + " " + bottom);
                                    publish(top, bottom);
                                    Node.makeEdge(top, bottom);
                                }
@@ -632,7 +634,6 @@ public class MainPanel extends JPanel {
                 } catch (Exception ex) {
                     report(ex);
                 }
-                // TODO Auto-generated method stub
             }
             private void updateOverlay(Collection<Node> nodes) {
                 for (Node node : nodes) {
@@ -643,12 +644,12 @@ public class MainPanel extends JPanel {
                 }
                 for (Node node : nodes) {
                     node.neighbours().forEach(neighbour -> {
-                        gg.setColor(Color.WHITE);
+                        gg.setColor(neighbour.fixed ? normColors[neighbour.color()] : Color.WHITE);
                         gg.fillOval(neighbour.x-NODE_SIZE/2, neighbour.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
                         gg.setColor(Color.BLACK);
                         gg.drawOval(neighbour.x-NODE_SIZE/2, neighbour.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
                     });
-                    gg.setColor(Color.WHITE);
+                    gg.setColor(node.fixed ? normColors[node.color()] : Color.WHITE);
                     gg.fillOval(node.x-NODE_SIZE/2, node.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
                     gg.setColor(Color.BLACK);
                     gg.drawOval(node.x-NODE_SIZE/2, node.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
@@ -1021,6 +1022,7 @@ public class MainPanel extends JPanel {
         originalImage = toBufferedImage(img);
         boundary = null;
         normalized = null;
+        normColors = null;
         intersections = null;
         borders = null;
         
