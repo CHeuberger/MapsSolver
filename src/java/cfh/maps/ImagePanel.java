@@ -15,6 +15,7 @@ import javax.swing.Timer;
 @SuppressWarnings("serial")
 public class ImagePanel extends JPanel {
 
+    public static final int NODE_SIZE = 20;
     private static final int MARK = 6;
     
     private BufferedImage image = null;
@@ -24,6 +25,7 @@ public class ImagePanel extends JPanel {
     private boolean drawBoundary;
     
     private Point mark = null;
+    private Node nodeMark = null;
     private boolean drawMark;
     
     private final Timer animator;
@@ -74,6 +76,14 @@ public class ImagePanel extends JPanel {
         }
     }
     
+    public void setNodeMark(Node node) {
+        this.nodeMark = node;
+        drawMark = true;
+        if (!animator.isRunning()) {
+            animator.start();
+        }
+    }
+    
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -111,8 +121,15 @@ public class ImagePanel extends JPanel {
                     }
                     drawMark ^= true;
                 }
+                if (nodeMark != null) {
+                    if (drawMark) {
+                        gg.setColor(Color.BLACK);
+                        gg.drawOval(nodeMark.x-NODE_SIZE/2-3, nodeMark.y-NODE_SIZE/2-3, NODE_SIZE+6, NODE_SIZE+6);
+                    }
+                    drawMark ^= true;
+                }
                 
-                if (boundary == null && mark == null) {
+                if (boundary == null && mark == null && nodeMark == null) {
                     if (animator.isRunning()) {
                         animator.stop();
                     }

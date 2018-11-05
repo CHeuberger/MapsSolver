@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
@@ -66,8 +67,6 @@ public class MainPanel extends JPanel {
     
     private static final int FILL_BORDER = 0;
     
-    private static final int NODE_SIZE = 20;
-    
     private static final String PREF_DIR = "directory";
     
     private final Preferences prefs = Preferences.userNodeForPackage(getClass());
@@ -83,6 +82,8 @@ public class MainPanel extends JPanel {
     private Action fillGraphAction;
     private Action walkAction;
     private Action borderAction;
+    
+    private Action solveGraphAction;
     
     private Action grayAction;
     private Action hueAction;
@@ -636,25 +637,82 @@ public class MainPanel extends JPanel {
                 }
             }
             private void updateOverlay(Collection<Node> nodes) {
-                for (Node node : nodes) {
-                    gg.setColor(Color.BLUE);
-                    node.neighbours().forEach(neighbour -> {
-                        gg.drawLine(node.x, node.y, neighbour.x, neighbour.y);
-                    });
+                drawNodes(gg, nodes);
+            }
+        }.execute();
+    }
+    
+    
+    private void doSolveGraph(ActionEvent ev) {
+        assert graph != null : "must first do " + fillGraphAction.getValue(Action.NAME);
+        
+        int x0 = boundary.x;
+        int y0 = boundary.y;
+        
+        final BufferedImage overlay = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), TYPE_INT_ARGB);
+        imagePanel.setOverlay(overlay);
+        final Graphics2D gg = overlay.createGraphics();
+        gg.translate(x0, y0);
+        drawNodes(gg, graph);
+        StepDialog stepDialog = new StepDialog(this, "Solve Graph");
+        if ((ev.getModifiers() & ActionEvent.CTRL_MASK) != 0) {
+            stepDialog.show();
+        }
+        
+        new SwingWorker<Collection<Node>, Node>() {
+            private final int max = normColors.length;
+            private void mark(Node node, String text) {
+                imagePanel.setNodeMark(node);
+                stepDialog.waitStep("%s %s", node, text);
+            }
+            private BitSet free(Node node) {
+                BitSet result = new BitSet(max);
+                if (node.color() == node.UNDEF) {
+                    node.neighbours()
+                    .mapToInt(Node::color)
+                    .filter(col -> col != Node.UNDEF)
+                    .forEach(result::set);
                 }
-                for (Node node : nodes) {
-                    node.neighbours().forEach(neighbour -> {
-                        gg.setColor(neighbour.fixed ? normColors[neighbour.color()] : Color.WHITE);
-                        gg.fillOval(neighbour.x-NODE_SIZE/2, neighbour.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
-                        gg.setColor(Color.BLACK);
-                        gg.drawOval(neighbour.x-NODE_SIZE/2, neighbour.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
-                    });
-                    gg.setColor(node.fixed ? normColors[node.color()] : Color.WHITE);
-                    gg.fillOval(node.x-NODE_SIZE/2, node.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
-                    gg.setColor(Color.BLACK);
-                    gg.drawOval(node.x-NODE_SIZE/2, node.y-NODE_SIZE/2, NODE_SIZE, NODE_SIZE);
+                return result;
+            }
+            @Override
+            protected Collection<Node> doInBackground() throws Exception {
+                // reset
+                graph.stream().forEach(Node::reset);
+
+                // search nodes with only one free color
+                for (Node node : graph) {
+                    BitSet free = free(node);
+                    if (free.cardinality() == 1) {
+                        node.color(free.nextSetBit(0));
+                        mark(node, "unique: " + node.color());
+                        publish(node);
+                    }
                 }
-                repaint();
+                mark(null, "done");
+                return null;
+            }
+            @Override
+            protected void process(List<Node> chunks) {
+                updateOverlay(chunks);
+            }
+            @Override
+            protected void done() {
+                stepDialog.dispose();
+                try {
+//                    ... = get();
+                    imagePanel.setBoundary(null);
+                    imagePanel.setMark(null);
+                    updateOverlay(graph);
+                    gg.dispose();
+                    update();
+//                    setMessage(...
+                } catch (Exception ex) {
+                    report(ex);
+                }
+            }
+            private void updateOverlay(Collection<Node> nodes) {
+                drawNodes(gg, nodes);
             }
         }.execute();
     }
@@ -899,6 +957,25 @@ public class MainPanel extends JPanel {
         .execute();
     }
     
+    private void drawNodes(Graphics2D gg, Collection<Node> nodes) {
+        for (Node node : nodes) {
+            gg.setColor(Color.BLUE);
+            node.neighbours().forEach(neighbour -> gg.drawLine(node.x, node.y, neighbour.x, neighbour.y));
+        }
+        for (Node node : nodes) {
+            node.neighbours().forEach(neighbour -> drawNode(gg, neighbour));
+            drawNode(gg, node);
+        }
+        repaint();
+    }
+
+    private void drawNode(Graphics2D gg, Node node) {
+        gg.setColor(node.fixed ? normColors[node.color()] : Color.WHITE);
+        gg.fillOval(node.x-imagePanel.NODE_SIZE/2, node.y-imagePanel.NODE_SIZE/2, imagePanel.NODE_SIZE, imagePanel.NODE_SIZE);
+        gg.setColor(Color.BLACK);
+        gg.drawOval(node.x-imagePanel.NODE_SIZE/2, node.y-imagePanel.NODE_SIZE/2, imagePanel.NODE_SIZE, imagePanel.NODE_SIZE);
+    }
+    
     private void transform(Function<int[], int[]> filter, int type) {
         assert originalImage != null : "must first " + loadAction.getValue(Action.NAME);
         
@@ -1046,6 +1123,8 @@ public class MainPanel extends JPanel {
         fillGraphAction = makeAction("Graph", "Creates a graph of the filled regions; CTRL fro stepping", this::doFillGraph);
         walkAction = makeAction("Walk", "Find intersections by 'walking' the borders; CTRL for stepping", this::doWalk);
         borderAction = makeAction("Border", "Find all border (segments) between two regions", this::doBorder);
+        
+        solveGraphAction = makeAction("Graph", "Solve the Graph", this::doSolveGraph);
 
         grayAction = makeAction("Gray", "Show metric as gray overlay", ev -> transform(this::filterGray, TYPE_INT_RGB));
         hueAction = makeAction("HUE", "Show hue overlay", ev -> transform(this::filterHue, TYPE_INT_RGB));
@@ -1082,6 +1161,9 @@ public class MainPanel extends JPanel {
         analyseMenu.add(borderAction);
         analyseMenu.addSeparator();
         
+        JMenu solveMenu = new JMenu("Solve");
+        solveMenu.add(solveGraphAction);
+        
         JMenu filterMenu = new JMenu("Filter");
         filterMenu.add(grayAction);
         filterMenu.add(hueAction);
@@ -1091,6 +1173,7 @@ public class MainPanel extends JPanel {
         JMenuBar bar = new JMenuBar();
         bar.add(fileMenu);
         bar.add(analyseMenu);
+        bar.add(solveMenu);
         bar.add(filterMenu);
         
         return bar;
@@ -1124,6 +1207,8 @@ public class MainPanel extends JPanel {
         fillGraphAction.setEnabled(filled != null);
         walkAction.setEnabled(normalized != null);
         borderAction.setEnabled(intersections != null);
+        
+        solveGraphAction.setEnabled(graph != null);
         
         grayAction.setEnabled(originalImage != null);
         hueAction.setEnabled(originalImage != null);

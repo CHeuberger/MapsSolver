@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 
 public class Node {
+    
+    public static final int UNDEF = -1;
 
     public final int region;
     
@@ -19,7 +21,7 @@ public class Node {
     
     
     public Node(int region, int x, int y) {
-        this(region, x, y, false, -1);
+        this(region, x, y, false, UNDEF);
     }
     
     public Node(int region, int x, int y, int color) {
@@ -49,6 +51,16 @@ public class Node {
     
     public int color() {
         return color;
+    }
+    
+    public void color(int color) {
+        this.color = color;
+    }
+    
+    public void reset() {
+        if (!fixed) {
+            color = UNDEF;
+        }
     }
     
     @Override
